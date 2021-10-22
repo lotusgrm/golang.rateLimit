@@ -360,8 +360,7 @@ func (lim *Limiter) reserveN(now time.Time, n int, maxFutureReserve time.Duratio
 
 	// Calculate the wait duration
 	// 如果token < 0, 说明目前的token不够，需要等待一段时间，调用 durationFromTokens 函数计算生成所需要令牌数量需要多长时间
-	
-	// 如果token < 0, 说明目前的token不够，需要等待一段时间，调用 durationFromTokens 函数计算生成所需要令牌数量需要多长时间
+	// 在消费令牌桶中的令牌时如果说令牌的数量已经为负值了，依然可以按照流程进行消费，随着负值越来越小，需要等待的时间也越来越长，也就是需要新生成的令牌变多了
 	var waitDuration time.Duration
 	if tokens < 0 {
 		waitDuration = lim.limit.durationFromTokens(-tokens)
@@ -384,15 +383,16 @@ func (lim *Limiter) reserveN(now time.Time, n int, maxFutureReserve time.Duratio
 		limit: lim.limit,
 	}
 
-	// timeToAct表示当桶中满足token数目等于n的时间
+	// timeToAct 表示从现在开始到令牌桶中新增完满足需求的令牌时刻，如当前是 2021-10-22 19：34：30 ，生成新令牌需要 3s，则 timeToAct 就是 2021-10-22 19：34：35
+	// time
 	if ok {
 		r.tokens = n
 		r.timeToAct = now.Add(waitDuration)
 	}
 
 	// Update state
-	// 更新桶里面的token数目
-	// 更新last时间
+	// 更新令牌桶里面的 token 数目
+	// 更新 last 时间
 	// lastEvent
 	if ok {
 		lim.last = now
@@ -401,7 +401,7 @@ func (lim *Limiter) reserveN(now time.Time, n int, maxFutureReserve time.Duratio
 	} else {
 		lim.last = last
 	}
-
+        // 释放锁 然后返回 Reservation 对象
 	lim.mu.Unlock()
 	return r
 }
