@@ -428,6 +428,14 @@ func (lim *Limiter) advance(now time.Time) (newNow time.Time, newLast time.Time,
 	
 	// 为什么要拆分两步做，是为了防止后面的delta溢出，所谓的拆分成两步是指：1、先计算出填满令牌桶需要多久 2、当前时间到上一次取令牌这段时间内生成了多少 token 
 	// 必须要保证当前时间到上一次取 token 的时间差不能大于填满令牌桶所需要的时间，因为默认情况下，last为0，此时delta算出来的，会非常大
+	
+	// 举例如果说在这里我们这样设计：
+	// elapsed := no.Sub(lim.last) delta = tokensFromDurtion(now.Sub(lim.last)) tokens := lim.tokens + delta if(token > lim.burst) { tokens =limburst }
+	// elapsed 表示上一次获取 token 到现在的时间差
+	// delta 表示 elapsed 时间段内生成新生成了多少 token
+	// 将令牌桶中之前已有的 token 数量 + delta 保证其和 tokens 不超过 令牌桶的容量
+	// 这样设计的话，存在一个潜在的问题，当 last 非常小的时候或者为其初始值0，此时 now.Sub(lim.last) 的值就会非常，如果说 lim.limit 也就是每秒生成 token 的速率也比较大的时候
+	// 二者相乘可能会溢出，这里的溢出指的是数值上的溢出。所以先计算出将令牌桶填满需要的时间，将其作为时间差的上限，这样一来就可以规避溢出的问题
 	maxElapsed := lim.limit.durationFromTokens(float64(lim.burst) - lim.tokens)
 
 	// elapsed 表示从当前到上次一共过去了多久
