@@ -220,11 +220,11 @@ func (lim *Limiter) Reserve() *Reservation {
 // If you need to respect a deadline or cancel the delay, use Wait instead.
 // To drop or skip events exceeding rate limit, use Allow instead.
 func (lim *Limiter) ReserveN(now time.Time, n int) *Reservation {
-	r := lim.reserveN(now, n, InfDuration)
+	r := lim.(now, n, InfDuration)
 	return &r
 }
 
-// Wait 和 WaitN 方法都是用于消费令牌桶中的令牌，其中当 n=1 时， Wait 方法相当于是 WaitN(ctx，1)，n 表示一次从令牌桶中获取令牌的数量
+// Wait 和 方法都是用于消费令牌桶中的令牌，其中当 n=1 时， Wait 方法相当于是 WaitN(ctx，1)，n 表示一次从令牌桶中获取令牌的数量
 // Wait is shorthand for WaitN(ctx, 1).
 func (lim *Limiter) Wait(ctx context.Context) (err error) {
 	return lim.WaitN(ctx, 1)
@@ -239,12 +239,12 @@ func (lim *Limiter) WaitN(ctx context.Context, n int) (err error) {
 	burst := lim.burst
 	limit := lim.limit
 	lim.mu.Unlock()
-        // 在 limit 不等于 Inf 的前提下，如果说 n 大于令牌桶的容量则 WaitN 直接返回 error，不再执行下面的处理逻辑
+        // 如果要消费的令牌数量 n 大于令牌桶的容量并且 limit 不等于 Inf，则 WaitN 直接返回 error，不再执行下面的处理逻辑
 	if n > burst && limit != Inf {
 		return fmt.Errorf("rate: Wait(n=%d) exceeds limiter's burst %d", n, lim.burst)
 	}
 	// Check if ctx is already cancelled
-	// 判断 context 是否被取消，如果 context 被取消了 WaitN 返回 error，不再执行下面的处理逻辑
+	// 判断 context 是否被取消，如果 context 被取消了 ，则 WaitN 直接返回 error，不再执行下面的处理逻辑
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -256,7 +256,7 @@ func (lim *Limiter) WaitN(ctx context.Context, n int) (err error) {
 	// now 获取当前时间
 	now := time.Now()
 	waitLimit := InfDuration
-	// 判断 context 是否到了 deadline ，如果 context 到了 deadline 也就是 ok 为 true，则通过 Sub 方法计算出 context 被取消的时间
+	// 判断 context 是否到了 deadline ，如果 context 到了 deadline ，则 ok 为 true，通过 Sub 方法计算出 context 被取消的时间
 	// 和当前时间的差值->waitLimit
 	if deadline, ok := ctx.Deadline(); ok {
 		waitLimit = deadline.Sub(now)
@@ -265,7 +265,8 @@ func (lim *Limiter) WaitN(ctx context.Context, n int) (err error) {
 	// Reserve
 	// 调用 reserveN 函数返回 Reservation 对象，相关细节查看 reserveN 函数的注释
 	r := lim.reserveN(now, n, waitLimit)
-        // reserveN 为 false 有两种情况：1、要获取的 token 数量大于令牌桶的容量 2、令牌桶所产生令牌的时间大于了需要等待的时间 也就是超出了 context deadline
+        // ok 为 false 则直接返回 error，ok 为 false 有两种情况：1、要获取的 token 数量大于令牌桶的容量 2、要获取令牌的数量不大于桶的容量
+	// 但是当前令牌桶中的令牌数量<n,需要等待一段时间，但是令牌桶生成新令牌的时间大于了最大愿意等待时间 也就是超出了 context deadline
 	if !r.ok {
 		return fmt.Errorf("rate: Wait(n=%d) would exceed context deadline", n)
 	}
@@ -335,9 +336,10 @@ func (lim *Limiter) SetBurstAt(now time.Time, newBurst int) {
 // @param n 要消费的token数量
 // @param maxFutureReserve 愿意等待的最长时间
 func (lim *Limiter) reserveN(now time.Time, n int, maxFutureReserve time.Duration) Reservation {
+	// 更新令牌桶相关数据的过程为了保证线程安全，这里使用了 mutex 加锁
 	lim.mu.Lock()
 
-	// 如果没有限制
+	// 如果 limit 没有限制，也就是向令牌桶中放入令牌的速率没有限制，则直接返回 Reservation 
 	if lim.limit == Inf {
 		lim.mu.Unlock()
 		return Reservation{
@@ -357,6 +359,8 @@ func (lim *Limiter) reserveN(now time.Time, n int, maxFutureReserve time.Duratio
 	tokens -= float64(n)
 
 	// Calculate the wait duration
+	// 如果token < 0, 说明目前的token不够，需要等待一段时间，调用 durationFromTokens 函数计算生成所需要令牌数量需要多长时间
+	
 	// 如果token < 0, 说明目前的token不够，需要等待一段时间，调用 durationFromTokens 函数计算生成所需要令牌数量需要多长时间
 	var waitDuration time.Duration
 	if tokens < 0 {
