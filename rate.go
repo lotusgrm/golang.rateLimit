@@ -277,12 +277,12 @@ func (lim *Limiter) WaitN(ctx context.Context, n int) (err error) {
 	// Wait if necessary
 	// delay 为从当前时间开始，到满足条件，需要多长时间
 	delay := r.DelayFrom(now)
-
+        // 调用侧不用等待直接返回
 	if delay == 0 {
 		return nil
 	}
 
-	// 此处是真正建立 Timer 的时候，建立计时器，开始等待
+	// 此处是真正建立 Timer 的时候，建立计时器，调用侧开始等待
 	t := time.NewTimer(delay)
 	defer t.Stop()
 	select {
@@ -363,8 +363,10 @@ func (lim *Limiter) reserveN(now time.Time, n int, maxFutureReserve time.Duratio
 	tokens -= float64(n)
 
 	// Calculate the wait duration
-	// 如果token < 0, 说明目前的token不够，需要等待一段时间，调用 durationFromTokens 函数计算生成生成 tokens 个令牌需要多久（注意：此时还未建立 Timer）
+	// 如果token < 0, 说明目前的token不够，需要等待一段时间，等待的时间就是生成新 token 需要的时间，调用 durationFromTokens 函数计算生成生成 tokens 个令牌需要多久（注意：此时还未建立 Timer）
 	// 在消费令牌桶中的令牌时如果说令牌的数量已经为负值了，依然可以按照流程进行消费，随着负值越来越小，需要等待的时间也越来越长，也就是需要新生成的令牌变多了
+	
+	// 如果 tokens > 0 说明此时令牌桶中的 Token 充足，不需要调用侧等待
 	var waitDuration time.Duration
 	if tokens < 0 {
 		waitDuration = lim.limit.durationFromTokens(-tokens)
