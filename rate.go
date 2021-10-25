@@ -91,6 +91,11 @@ func NewLimiter(r Limit, b int) *Limiter {
 }
 
 // Allow is shorthand for AllowN(time.Now(), 1).
+// Allow 方法是第二种用于消费的方法
+// Allow 相当于 lim.AllowN(time.Now(), 1)，通过代码追溯可以看到 lim.AllowN(time.Now(), 1)->lim.reserveN(now, n, 0).ok->reserveN(now time.Time n int, maxFutureReserve time.Duration)
+// 与 Wait 最终调用的方法是一致的，唯一的区别就是在调用 reserveN 的时候 maxFutureReserve (最大愿意等待时长) 为0，当 maxFutureReserve 为 0的时候想要保证 Reservation 的 ok 为 true
+// 则需要保证 var waitDuration time.Duration 取默认值，也即是 tokens -= float64(n) 大于等于 0，这样一来 Allow 的作用就很简单了，截止某一时刻 now 桶中 Token 数目至少为 n 个，满足则返回
+// true,同时从桶中消费 n 个 token, 反之返回 false,不消费，注意这里直接将请求丢弃
 func (lim *Limiter) Allow() bool {
 	return lim.AllowN(time.Now(), 1)
 }
