@@ -126,6 +126,7 @@ func (r *Reservation) OK() bool {
 }
 
 // Delay is shorthand for DelayFrom(time.Now()).
+// Delay 相当于 DelayFrom(time.Now())
 func (r *Reservation) Delay() time.Duration {
 	return r.DelayFrom(time.Now())
 }
@@ -138,9 +139,15 @@ const InfDuration = time.Duration(1<<63 - 1)
 // InfDuration means the limiter cannot grant the tokens requested in this
 // Reservation within the maximum wait time.
 func (r *Reservation) DelayFrom(now time.Time) time.Duration {
+    // 判断 Reservation 的 ok 是否为false，如果为 false 则返回 InfDuration
+    // ok == false 有两种情况：
+    // 1、n > burst 可以根据返回的 Reservation 对象判断是否是 n > burst，如果是则可以根据实际情况是否需要动态调整 burst(如果是通过 lim.Reserve() 返回的 Reservation 对象，ok == false 并不会由于 n > burst 导致的，除非将 burst 设置为0)
+    // 2、watDuration > maxFutureReserve 新token生成所需要的时间大于最大愿意等待时长
 	if !r.ok {
 		return InfDuration
 	}
+	// 计算需要等待的时长，如果为 0 则表示不需要等待
+	// timeToAct表示令牌桶可以满足本次消费的时刻，也就是消费的时刻 + 等待的时长
 	delay := r.timeToAct.Sub(now)
 	if delay < 0 {
 		return 0
@@ -206,6 +213,10 @@ func (r *Reservation) CancelAt(now time.Time) {
 }
 
 // Reserve is shorthand for ReserveN(time.Now(), 1).
+// Reserve 是第三种用于消费 Token 的方法
+// Reserve 相当于 lim.ReserveN(time.Now(), 1) ，其中 n 值为 1，表示调用者只从令牌桶中消费 1 个Token,根据代码追溯发现最终调用的还是 lim.reserveN
+// 当调用完成以后无论 Token 是否充足都会返回一个 Reservation 对象，可以通过调用该对象的 Delay 方法，这个方法返回调用侧需要等待的时长，如果返回值为 0 则表示不需要等待
+// 否则的话需要等到需要等待的时间之后才能继续执行后面的逻辑，另外还可以根据返回的结果和现有情况，调用 Cancel 函数取消此次消费
 func (lim *Limiter) Reserve() *Reservation {
 	return lim.ReserveN(time.Now(), 1)
 }
@@ -225,7 +236,7 @@ func (lim *Limiter) Reserve() *Reservation {
 // If you need to respect a deadline or cancel the delay, use Wait instead.
 // To drop or skip events exceeding rate limit, use Allow instead.
 func (lim *Limiter) ReserveN(now time.Time, n int) *Reservation {
-	r := lim.(now, n, InfDuration)
+	r := lim.reserveN(now, n, InfDuration)
 	return &r
 }
 
